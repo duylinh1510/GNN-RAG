@@ -1,0 +1,95 @@
+{
+  "schema_name": "Social Media Platform",
+  "description": "Schema for a social media platform",
+  "node_types": {
+    "User": "Platform users who can post and interact",
+    "Post": "Content posted by users",
+    "Comment": "Comments on posts",
+    "Hashtag": "Tags for categorizing content",
+    "Group": "User groups or communities"
+  },
+  "properties": {
+    "User": [
+      "userID - unique user identifier",
+      "username - user display name",
+      "email - user email address",
+      "joinDate - when user joined platform",
+      "followerCount - number of followers"
+    ],
+    "Post": [
+      "postID - unique post identifier",
+      "content - post text content",
+      "timestamp - when post was created",
+      "likes - number of likes",
+      "shares - number of shares"
+    ],
+    "Comment": [
+      "commentID - unique comment identifier",
+      "content - comment text",
+      "timestamp - when comment was made",
+      "likes - number of likes"
+    ],
+    "Hashtag": [
+      "tagName - hashtag text",
+      "usage_count - how often tag is used"
+    ],
+    "Group": [
+      "groupID - unique group identifier",
+      "groupName - name of the group",
+      "description - group description",
+      "memberCount - number of members"
+    ]
+  },
+  "relationships": [
+    [
+      "User",
+      "POSTED",
+      "Post",
+      "Users create posts"
+    ],
+    [
+      "User",
+      "COMMENTED",
+      "Comment",
+      "Users write comments"
+    ],
+    [
+      "Comment",
+      "ON",
+      "Post",
+      "Comments are on posts"
+    ],
+    [
+      "Post",
+      "TAGGED_WITH",
+      "Hashtag",
+      "Posts use hashtags"
+    ],
+    [
+      "User",
+      "FOLLOWS",
+      "User",
+      "Users follow other users"
+    ],
+    [
+      "User",
+      "MEMBER_OF",
+      "Group",
+      "Users join groups"
+    ]
+  ],
+  "example_queries": [
+    {
+      "question": "Find all posts by a specific user",
+      "cypher": "MATCH (u:User)-[:POSTED]->(p:Post) WHERE u.username = 'john_doe' RETURN p.content, p.timestamp"
+    },
+    {
+      "question": "Get popular hashtags",
+      "cypher": "MATCH (h:Hashtag) WHERE h.usage_count > 100 RETURN h.tagName, h.usage_count ORDER BY h.usage_count DESC"
+    },
+    {
+      "question": "Find comments on a post",
+      "cypher": "MATCH (p:Post)<-[:ON]-(c:Comment) WHERE p.postID = '12345' RETURN c.content, c.timestamp"
+    }
+  ]
+}

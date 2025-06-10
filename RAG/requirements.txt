@@ -1,0 +1,14 @@
+ollama
+langchain
+langchain-community
+langchain-ollama
+neo4j
+python-dotenv
+streamlit
+sentence-transformers
+# faiss-cpu  # Commented out as we'll use GNN instead
+torch
+torch-geometric
+networkx
+matplotlib
+numpy 

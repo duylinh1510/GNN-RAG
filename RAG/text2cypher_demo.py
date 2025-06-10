@@ -1,6 +1,12 @@
+#!/usr/bin/env python3
+"""
+Text2Cypher RAG Demo - Console Version
+Chuyển đổi câu hỏi tiếng tự nhiên thành câu truy vấn Neo4j Cypher sử dụng RAG
+"""
+
 import os
+import sys
 from typing import Dict, List, Any
-import streamlit as st
 from langchain_ollama import OllamaLLM
 from langchain.prompts import PromptTemplate
 from langchain.schema import Document
@@ -39,6 +45,14 @@ class Text2CypherRAG:
             {
                 "question": "Find expensive products over 50",
                 "cypher": "MATCH (p:Product) WHERE p.unitPrice > 50 RETURN p.productName, p.unitPrice ORDER BY p.unitPrice DESC"
+            },
+            {
+                "question": "Which customers bought products from suppliers in UK?",
+                "cypher": "MATCH (c:Customer)-[:PURCHASED]->(o:Order)-[:ORDERS]->(p:Product)<-[:SUPPLIES]-(s:Supplier) WHERE s.country = 'UK' RETURN DISTINCT c.companyName, s.companyName"
+            },
+            {
+                "question": "Show products cheaper than 20 in Beverages category",
+                "cypher": "MATCH (p:Product)-[:PART_OF]->(c:Category) WHERE c.categoryName = 'Beverages' AND p.unitPrice < 20 RETURN p.productName, p.unitPrice"
             }
         ]
         
@@ -128,6 +142,37 @@ class Text2CypherRAG:
         context = "\n\n".join([doc.page_content for doc in docs])
         return context
     
+    def _validate_cypher_query(self, cypher_query: str) -> str:
+        """Validate Cypher query against schema and return corrected query or error"""
+        # Valid node labels from schema
+        valid_nodes = {'Product', 'Category', 'Supplier', 'Customer', 'Order'}
+        
+        # Valid relationship types from schema  
+        valid_relationships = {'PART_OF', 'SUPPLIES', 'PURCHASED', 'ORDERS'}
+        
+        # Convert to uppercase for case-insensitive comparison
+        query_upper = cypher_query.upper()
+        
+        # Check for invalid node labels
+        import re
+        # Find node patterns like (n:NodeLabel) or (:NodeLabel) - chỉ sau dấu :
+        node_pattern = r'\(\w*:([A-Z][A-Z_a-z]*)\)'
+        found_nodes = re.findall(node_pattern, query_upper)
+        
+        for node in found_nodes:
+            if node not in [n.upper() for n in valid_nodes]:
+                return f"ERROR: Node '{node}' không tồn tại trong schema. Các node hợp lệ: {', '.join(valid_nodes)}"
+        
+        # Check for invalid relationships  
+        rel_pattern = r'\[:([A-Z_]+)\]'
+        found_rels = re.findall(rel_pattern, query_upper)
+        
+        for rel in found_rels:
+            if rel not in [r.upper() for r in valid_relationships]:
+                return f"ERROR: Relationship '{rel}' không tồn tại trong schema. Các relationship hợp lệ: {', '.join(valid_relationships)}"
+        
+        return cypher_query
+    
     def generate_cypher(self, question: str) -> str:
         """Generate Cypher query from natural language question"""
         # Get relevant context
@@ -145,13 +190,29 @@ Given the following database schema and context:
 Convert this natural language question to a Cypher query:
 Question: {question}
 
-Rules:
-1. Only return the Cypher query, no explanations
-2. Use proper Neo4j syntax
-3. Use the exact node labels and property names from the schema
-4. Use appropriate relationships from the schema
-5. Include necessary WHERE clauses for filtering
-6. Use RETURN to specify what data to retrieve
+CRITICAL VALIDATION RULES:
+1. ONLY use these exact node labels: Product, Category, Supplier, Customer, Order
+2. ONLY use these exact relationships: PART_OF, SUPPLIES, PURCHASED, ORDERS
+3. If the question asks about entities NOT in the schema (like employees, users, departments, people), return: "ERROR: Entities not found in schema"
+4. Do NOT guess or substitute - if unsure, return error message
+5. Use proper Neo4j syntax
+6. Include necessary WHERE clauses for filtering
+7. Use RETURN to specify what data to retrieve
+
+ENTITY MAPPING (be strict):
+- products → Product ✓
+- categories → Category ✓  
+- suppliers → Supplier ✓
+- customers → Customer ✓
+- orders → Order ✓
+- employees → NOT EXIST → ERROR ✗
+- users → NOT EXIST → ERROR ✗
+- departments → NOT EXIST → ERROR ✗
+- people → NOT EXIST → ERROR ✗
+- companies → Use Supplier or Customer (clarify in context)
+
+If the question cannot be mapped to valid schema entities, return:
+"ERROR: Cannot map question entities to schema. Available entities: Product, Category, Supplier, Customer, Order"
 
 Cypher Query:
 """
@@ -166,111 +227,74 @@ Cypher Query:
         if cypher_query.startswith("```"):
             cypher_query = cypher_query.replace("```cypher", "").replace("```", "").strip()
         
-        return cypher_query
+        # Check if LLM already returned an error message
+        if cypher_query.startswith("ERROR:"):
+            return cypher_query
+        
+        # Validate the generated query
+        validated_query = self._validate_cypher_query(cypher_query)
+        
+        return validated_query
 
 def main():
-    st.set_page_config(page_title="Text2Cypher RAG Demo", page_icon="🔍")
-    
-    st.title("🔍 Text2Cypher RAG Demo")
-    st.markdown("Convert natural language questions to Neo4j Cypher queries using RAG")
-    
-    # Initialize the RAG system
-    @st.cache_resource
-    def load_rag_system():
-        return Text2CypherRAG()
+    print("🔍 Text2Cypher RAG Demo (Console Version)")
+    print("=" * 50)
     
     try:
-        rag_system = load_rag_system()
+        print("Đang khởi tạo hệ thống RAG...")
+        rag_system = Text2CypherRAG()
+        print("✅ Khởi tạo hệ thống thành công!\n")
         
-        # Sidebar with schema information
-        with st.sidebar:
-            st.header("📊 Database Schema")
-            st.markdown("""
-            **Nodes:**
-            - Product
-            - Category  
-            - Supplier
-            - Customer
-            - Order
-            
-            **Relationships:**
-            - Product → Category (PART_OF)
-            - Supplier → Product (SUPPLIES)
-            - Customer → Order (PURCHASED)
-            - Order → Product (ORDERS)
-            """)
-            
-            st.header("💡 Example Questions")
-            for i, example in enumerate(rag_system.example_queries):
-                if st.button(f"Example {i+1}", key=f"ex_{i}"):
-                    st.session_state.question = example["question"]
+        # Show example queries
+        print("💡 Các câu hỏi mẫu bạn có thể hỏi:")
+        for i, example in enumerate(rag_system.example_queries, 1):
+            print(f"{i}. {example['question']}")
+        print()
         
-        # Main interface
-        st.header("Ask a Question")
-        
-        # Initialize session state
-        if "question" not in st.session_state:
-            st.session_state.question = ""
-        
-        question = st.text_area(
-            "Enter your question in English:",
-            value=st.session_state.question,
-            height=100,
-            placeholder="e.g., Show me all products with their categories"
-        )
-        
-        col1, col2 = st.columns([1, 4])
-        
-        with col1:
-            generate_btn = st.button("Generate Cypher", type="primary")
-        
-        with col2:
-            clear_btn = st.button("Clear")
-        
-        if clear_btn:
-            st.session_state.question = ""
-            st.rerun()
-        
-        if generate_btn and question:
-            with st.spinner("Generating Cypher query..."):
-                try:
-                    cypher_query = rag_system.generate_cypher(question)
-                    
-                    st.header("Generated Cypher Query")
-                    st.code(cypher_query, language="cypher")
-                    
-                    # Show relevant context used
-                    with st.expander("View Retrieved Context"):
-                        context = rag_system._get_relevant_context(question)
-                        st.text(context)
-                    
-                except Exception as e:
-                    st.error(f"Error generating query: {str(e)}")
-        
-        # Additional information
-        st.markdown("---")
-        st.markdown("""
-        **How it works:**
-        1. Your question is embedded using sentence transformers
-        2. Relevant schema information is retrieved using similarity search
-        3. The context and question are sent to Ollama (llama3.2)
-        4. The model generates a Cypher query based on the schema
-        
-        **Note:** Make sure Ollama is running with llama3.2 model installed:
-        ```bash
-        ollama pull llama3.2
-        ollama serve
-        ```
-        """)
-        
+        while True:
+            try:
+                question = input("Nhập câu hỏi của bạn (hoặc 'quit' để thoát): ").strip()
+                
+                if question.lower() in ['quit', 'exit', 'q', 'thoát']:
+                    print("Tạm biệt! 👋")
+                    break
+                
+                if not question:
+                    continue
+                
+                print("\n🔄 Đang tạo câu truy vấn Cypher...")
+                cypher_query = rag_system.generate_cypher(question)
+                
+                print("\n📋 Câu truy vấn Cypher đã tạo:")
+                print("-" * 40)
+                print(cypher_query)
+                print("-" * 40)
+                
+                # Ask if user wants to see context
+                show_context = input("\nHiển thị ngữ cảnh được truy xuất? (y/n): ").strip().lower()
+                if show_context in ['y', 'yes', 'có']:
+                    context = rag_system._get_relevant_context(question)
+                    print("\n📚 Ngữ cảnh được truy xuất:")
+                    print("-" * 40)
+                    print(context)
+                    print("-" * 40)
+                
+                print("\n" + "="*50 + "\n")
+                
+            except KeyboardInterrupt:
+                print("\n\nTạm biệt! 👋")
+                break
+            except Exception as e:
+                print(f"❌ Lỗi: {str(e)}")
+                continue
+                
     except Exception as e:
-        st.error(f"Failed to initialize the system: {str(e)}")
-        st.markdown("""
-        **Troubleshooting:**
-        1. Ensure Ollama is installed and running
-        2. Pull the llama3.2 model: `ollama pull llama3.2`
-        3. Install required dependencies: `pip install -r requirements.txt`
-        """)
+        print(f"❌ Không thể khởi tạo hệ thống: {str(e)}")
+        print("\n🔧 Hướng dẫn khắc phục:")
+        print("1. Đảm bảo Ollama đang chạy: ollama serve")
+        print("2. Cài đặt model llama3.2: ollama pull llama3.2")
+        print("3. Cài đặt dependencies: pip install -r requirements.txt")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main() 
